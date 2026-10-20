@@ -47,6 +47,7 @@
 
 // propias
 #include "config.h"
+#include "therm.h"
 
 static const char *TAG = "STF_P1:task_sensor";
 
@@ -64,7 +65,7 @@ static void tmrSampleCallback(void* arg)
 // ESP32 tiene unidad de conversión analógica digital, que debe configurarse 
 // previamente a las lecturas mediante esta estructura manejador. Se define global
 // porque únicamente usaremos un ADC. Se configura en la tarea antes del loop
-adc_oneshot_unit_handle_t adc_hdlr; 
+// adc_oneshot_unit_handle_t adc_hdlr; 
 
 
 // Funciones de lectura del sensor.
@@ -80,7 +81,7 @@ adc_oneshot_unit_handle_t adc_hdlr;
 // de bits que tiene el ADC (para conocer el máximo valor binario que
 // se puede obtener) y el voltaje de referencia (el máximo voltaje que es 
 // capaz de medir)
-
+/*
 // LSB crudo
 int read_adc() 
 {
@@ -108,7 +109,7 @@ float v_to_temperature(float v)
 	// Resultado en grados centígrados
     return(t_kelvin - 273.15f);  
 }
-
+*/
 // Tarea SENSOR
 SYSTEM_TASK(TASK_SENSOR)
 {	
@@ -121,21 +122,21 @@ SYSTEM_TASK(TASK_SENSOR)
 	uint8_t frequency = ptr_args->freq;
 	uint64_t period_us = 1000000 / frequency;
 
-	// Estructura de datos para configurar la unidad ADC
-    adc_oneshot_unit_init_cfg_t unit_cfg = {
-        .unit_id = THERMISTOR_ADC_UNIT,
-        .clk_src = ADC_RTC_CLK_SRC_DEFAULT,
-    };
-	// Establecimiento de la configuracón en ADC
-    ESP_ERROR_CHECK(adc_oneshot_new_unit(&unit_cfg, &adc_hdlr));
-
-	// Estructura de datos para configurar el canal de la unidad ADC
-    adc_oneshot_chan_cfg_t channel_cfg = {
-        .atten = ADC_ATTEN_DB_11, // Rango de 0 a 3.3V
-        .bitwidth = ADC_BITWIDTH_12, // Resolución de 12 bits
-    };
-	// Establecimiento de la configuración del canal
-    ESP_ERROR_CHECK(adc_oneshot_config_channel(adc_hdlr, THERMISTOR_ADC_CHANNEL, &channel_cfg));
+//	// Estructura de datos para configurar la unidad ADC
+//    adc_oneshot_unit_init_cfg_t unit_cfg = {
+//        .unit_id = THERMISTOR_ADC_UNIT,
+//        .clk_src = ADC_RTC_CLK_SRC_DEFAULT,
+//    };
+//	// Establecimiento de la configuración en ADC
+//    ESP_ERROR_CHECK(adc_oneshot_new_unit(&unit_cfg, &adc_hdlr));
+//
+//	// Estructura de datos para configurar el canal de la unidad ADC
+//    adc_oneshot_chan_cfg_t channel_cfg = {
+//        .atten = ADC_ATTEN_DB_11, // Rango de 0 a 3.3V
+//        .bitwidth = ADC_BITWIDTH_12, // Resolución de 12 bits
+//    };
+//	// Establecimiento de la configuración del canal
+//    ESP_ERROR_CHECK(adc_oneshot_config_channel(adc_hdlr, THERMISTOR_ADC_CHANNEL, &channel_cfg));
 
 	// Inicializa el semásforo (la estructura del manejador se definió globalmente)
 	semSample = xSemaphoreCreateBinary();
@@ -153,7 +154,13 @@ SYSTEM_TASK(TASK_SENSOR)
 	
 	// variables para reutilizar en el bucle
 	void *ptr;
-	float v;
+	float v, v2;
+	therm_t thermistor;
+
+	therm_t t2;
+
+	therm_config(&thermistor, 35, 15);
+	therm_config(&t2, 26, 14);
 
 	// Loop
 	TASK_LOOP()
@@ -164,8 +171,10 @@ SYSTEM_TASK(TASK_SENSOR)
 		if(xSemaphoreTake(semSample, ((1000/frequency)*1.2)/portTICK_PERIOD_MS))
 		{	
 			// lectura del sensor. Se obtiene el valor en grados centígrados
-			v = v_to_temperature(lsb_to_v(read_adc()));
-			ESP_LOGI(TAG, "valor medido (pre buffer): %f", v);
+			//v = v_to_temperature(lsb_to_v(read_adc()));
+			v=therm_read_t(thermistor);
+			v2=therm_read_t(t2);
+			ESP_LOGI(TAG, "valores medido (pre buffer): %f %f", v, v2);
 
 
 			// Uso del buffer cíclico entre la tarea monitor y sensor. Ver documentación en ESP-IDF
