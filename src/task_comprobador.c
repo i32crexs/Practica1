@@ -62,6 +62,31 @@ SYSTEM_TASK(TASK_COMPROBADOR)
                 memcpy(ptr_tx, &msg_out, sizeof(monitor_msg_t));
                 xRingbufferSendComplete(*rbuf_mon, ptr_tx);
             }
+
+            // 4. Induce los cambios de estado en la máquina según el diagrama del Punto 4
+            uint8_t current_st = GET_ST_FROM_TASK();
+
+            if (desv >= 0.20f) 
+            {
+                // Si Desv >= 20% (desde NORMAL_MODE o DEGRADED_MODE) -> pasa a ERROR
+                if (current_st != ERROR) {
+                    SWITCH_ST_FROM_TASK(ERROR);
+                }
+            } 
+            else if (desv > 0.10f && desv < 0.20f) 
+            {
+                // Si 10% < Desv < 20% -> pasa a DEGRADED_MODE
+                if (current_st == NORMAL_MODE) {
+                    SWITCH_ST_FROM_TASK(DEGRADED_MODE);
+                }
+            } 
+            else if (desv <= 0.10f) 
+            {
+                // Si Desv <= 10% -> vuelve a NORMAL_MODE desde DEGRADED_MODE
+                if (current_st == DEGRADED_MODE) {
+                    SWITCH_ST_FROM_TASK(NORMAL_MODE);
+                }
+            }
         }
     }
 

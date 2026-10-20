@@ -33,22 +33,21 @@ static const char *TAG = "STF_P1:task_monitor";
 
 
 // Tarea MONITOR
-// Tarea MONITOR
 SYSTEM_TASK(TASK_MONITOR)
 {
     TASK_BEGIN();
-    ESP_LOGI(TAG,"Task Monitor running");
+    ESP_LOGI(TAG, "Task Monitor running");
 
-    // Recibe los argumentos de configuración de la tarea y los desempaqueta
     task_monitor_args_t* ptr_args = (task_monitor_args_t*) TASK_ARGS;
     RingbufHandle_t* rbuf_mon = ptr_args->rbuf_monitor; 
 
-    // Variables para reutilizar en el bucle
     size_t length;
     void *ptr;
     monitor_msg_t msg;
 
-    // Loop
+    // Almacena el último valor conocido de desviación entre activaciones
+    float desviacion = 0.0f;
+
     TASK_LOOP()
     {
         ptr = xRingbufferReceive(*rbuf_mon, &length, pdMS_TO_TICKS(1000));
@@ -58,21 +57,58 @@ SYSTEM_TASK(TASK_MONITOR)
             msg = *((monitor_msg_t *) ptr);
             vRingbufferReturnItem(*rbuf_mon, ptr);
 
-            // Discierne qué tarea es la fuente del mensaje a imprimir
-            if (msg.source == SRC_SENSOR) 
+            // Si el mensaje viene del Comprobador, guardamos la desviación actualizada
+            // (En NORMAL_MODE y DEGRADED_MODE no se imprime directamente la desviación)
+            if (msg.source == SRC_COMPROBADOR) 
             {
-                ESP_LOGI(TAG, "[SENSOR] T1: %.2f °C", msg.value);
-            } 
-            else if (msg.source == SRC_COMPROBADOR) 
+                desviacion = msg.value;
+            }
+
+            // Estructura switch sugerida en el documento según el estado actual
+            switch(GET_ST_FROM_TASK())
             {
-                ESP_LOGI(TAG, "[COMPROBADOR] Desviación: %.2f %%", msg.value * 100.0f);
+                case NORMAL_MODE:
+                    if (msg.source == SRC_SENSOR) 
+                    {
+                        printf("NORMAL_MODE: T = %.2f °C\n", msg.value);
+                    }
+                    break;
+
+                case DEGRADED_MODE:
+                    if (msg.source == SRC_SENSOR) 
+                    {
+                        float valor = msg.value;
+                        float t_min = valor - (valor * desviacion);
+                        float t_max = valor + (valor * desviacion);
+                        printf("DEGRADED_MODE: T = (%.2f - %.2f) °C\n", t_min, t_max);
+                    }
+                    break;
+
+                case ERROR:
+                    printf("Sensor ERROR. Repare and restart.\n");
+                    // Para salir de TASK_LOOP() y que la tarea se detenga por sí misma:
+                    goto exit_monitor_loop;
+
+                default:
+                    // Puede ocurrir al entrar la primera vez desde INIT antes de transitar a NORMAL_MODE
+                    vTaskDelay(pdMS_TO_TICKS(100));
+                    break;
             }
         } 
         else 
         {
+            // Si no llegan datos (por ejemplo, cuando Sensor ya se ha parado en ERROR)
+            // comprobamos igualmente si el sistema ha entrado en estado ERROR
+            if (GET_ST_FROM_TASK() == ERROR) 
+            {
+                printf("Sensor ERROR. Repare and restart.\n");
+                break; // Sale del TASK_LOOP() y se detiene por sí misma
+            }
             ESP_LOGW(TAG, "Esperando datos ...");
         }
     }
-    ESP_LOGI(TAG,"Deteniendo la tarea Monitor...");
+
+exit_monitor_loop:
+    ESP_LOGI(TAG, "Deteniendo la tarea Monitor por sí misma...");
     TASK_END();
 }

@@ -19,7 +19,9 @@
 #define SYS_NAME "STF P1 System"
 enum{
     INIT,
-    SENSOR_LOOP
+    NORMAL_MODE,
+    DEGRADED_MODE,
+    ERROR
 };
 
 // Configuración del buffer cíclico

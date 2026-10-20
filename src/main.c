@@ -32,14 +32,17 @@
 
 static const char *TAG = "STF_P1:main";
 
-// Punto de entrada
 void app_main(void)
 {
     system_t sys_stf_p1;
-    ESP_LOGI(TAG,"Starting STF_P1 system");
+    ESP_LOGI(TAG, "Starting STF_P1 system");
     system_create(&sys_stf_p1, SYS_NAME);
+    
+    // Registro de todos los estados de la máquina resiliente
     system_register_state(&sys_stf_p1, INIT);
-    system_register_state(&sys_stf_p1, SENSOR_LOOP);
+    system_register_state(&sys_stf_p1, NORMAL_MODE);
+    system_register_state(&sys_stf_p1, DEGRADED_MODE);
+    system_register_state(&sys_stf_p1, ERROR);
     system_set_default_state(&sys_stf_p1, INIT);
 
     // Manejadores de las 3 tareas
@@ -47,16 +50,16 @@ void app_main(void)
     system_task_t task_comprobador;
     system_task_t task_monitor;
 
-    // Creación de los dos RingBuffers (Monitor y Comprobador)
+    // Creación de los dos RingBuffers
     RingbufHandle_t rbuf_monitor = xRingbufferCreate(BUFFER_SIZE, BUFFER_TYPE);
     RingbufHandle_t rbuf_comprobador = xRingbufferCreate(BUFFER_SIZE, BUFFER_TYPE);
 
-    // Argumentos de las tareas (declarados fuera del bloque STATE para mantener su dirección en memoria)
+    // Argumentos de las tareas
     task_sensor_args_t task_sensor_args = {
         .rbuf_monitor = &rbuf_monitor,
         .rbuf_comprobador = &rbuf_comprobador,
-        .freq = 1, // 1 Hz (Ts = 1s)
-        .N = 5     // Comprueba el segundo termistor cada 5 lecturas
+        .freq = 1, // Ts = 1 segundo
+        .N = 5     // Comprueba cada 5 periodos
     };
     task_comprobador_args_t task_comprobador_args = {
         .rbuf_comprobador = &rbuf_comprobador,
@@ -71,6 +74,7 @@ void app_main(void)
     STATE_MACHINE(sys_stf_p1) 
     {
         STATE_MACHINE_BEGIN();
+
         STATE(INIT)
         {
             STATE_BEGIN();
@@ -83,27 +87,47 @@ void app_main(void)
                 ESP_ERROR_CHECK(nvs_flash_init());
             }
 
-            // 1. Lanza Tarea Sensor en CORE 0
+            // Lanza las tareas Sensor, Comprobador y Monitor
             ESP_LOGI(TAG, "starting sensor task...");
             system_task_start_in_core(&sys_stf_p1, &task_sensor, TASK_SENSOR, "TASK_SENSOR", TASK_SENSOR_STACK_SIZE, &task_sensor_args, 0, CORE0);
 
-            // 2. Lanza Tarea Comprobador en CORE 0
             ESP_LOGI(TAG, "starting comprobador task...");
             system_task_start_in_core(&sys_stf_p1, &task_comprobador, TASK_COMPROBADOR, "TASK_COMPROBADOR", TASK_COMPROBADOR_STACK_SIZE, &task_comprobador_args, 0, CORE0);
 
-            // 3. Lanza Tarea Monitor en CORE 1
             ESP_LOGI(TAG, "starting monitor task...");
             system_task_start_in_core(&sys_stf_p1, &task_monitor, TASK_MONITOR, "TASK_MONITOR", TASK_MONITOR_STACK_SIZE, &task_monitor_args, 0, CORE1);
 
-            SWITCH_ST(&sys_stf_p1, SENSOR_LOOP);
+            // Al finalizar la configuración, transiciona a NORMAL_MODE
+            SWITCH_ST(&sys_stf_p1, NORMAL_MODE);
             STATE_END();
         }
-        STATE(SENSOR_LOOP)
+
+        STATE(NORMAL_MODE)
         {
             STATE_BEGIN();
-            ESP_LOGI(TAG, "State: SENSOR_LOOP");
+            ESP_LOGI(TAG, "State: NORMAL_MODE");
             STATE_END();
         }
+
+        STATE(DEGRADED_MODE)
+        {
+            STATE_BEGIN();
+            ESP_LOGI(TAG, "State: DEGRADED_MODE");
+            STATE_END();
+        }
+
+        STATE(ERROR)
+        {
+            STATE_BEGIN();
+            ESP_LOGE(TAG, "State: ERROR -> Deteniendo tareas Sensor y Comprobador...");
+
+            // Detiene de forma controlada las tareas Sensor y Comprobador (Monitor se detiene por sí misma)
+            system_task_stop(&sys_stf_p1, &task_sensor, TASK_SENSOR_TIMEOUT_MS);
+            system_task_stop(&sys_stf_p1, &task_comprobador, TASK_COMPROBADOR_TIMEOUT_MS);
+
+            STATE_END();
+        }
+
         STATE_MACHINE_END();
     }
 }
