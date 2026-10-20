@@ -111,101 +111,107 @@ float v_to_temperature(float v)
 }
 */
 // Tarea SENSOR
+// Tarea SENSOR
 SYSTEM_TASK(TASK_SENSOR)
-{	
-	TASK_BEGIN();
-	ESP_LOGI(TAG,"Task Sensor running");
+{   
+    TASK_BEGIN();
+    ESP_LOGI(TAG,"Task Sensor running");
 
-	// Recibe los argumentos de configuración de la tarea y los desempaqueta
-	task_sensor_args_t* ptr_args = (task_sensor_args_t*) TASK_ARGS;
-	RingbufHandle_t* rbuf = ptr_args->rbuf; 
-	uint8_t frequency = ptr_args->freq;
-	uint64_t period_us = 1000000 / frequency;
+    // Recibe los argumentos de configuración de la tarea y los desempaqueta
+    task_sensor_args_t* ptr_args = (task_sensor_args_t*) TASK_ARGS;
+    RingbufHandle_t* rbuf_mon = ptr_args->rbuf_monitor;
+    RingbufHandle_t* rbuf_comp = ptr_args->rbuf_comprobador;
+    uint8_t frequency = ptr_args->freq;
+    uint8_t N = ptr_args->N;
+    uint64_t period_us = 1000000 / frequency;
 
-//	// Estructura de datos para configurar la unidad ADC
-//    adc_oneshot_unit_init_cfg_t unit_cfg = {
-//        .unit_id = THERMISTOR_ADC_UNIT,
-//        .clk_src = ADC_RTC_CLK_SRC_DEFAULT,
-//    };
-//	// Establecimiento de la configuración en ADC
-//    ESP_ERROR_CHECK(adc_oneshot_new_unit(&unit_cfg, &adc_hdlr));
-//
-//	// Estructura de datos para configurar el canal de la unidad ADC
-//    adc_oneshot_chan_cfg_t channel_cfg = {
-//        .atten = ADC_ATTEN_DB_11, // Rango de 0 a 3.3V
-//        .bitwidth = ADC_BITWIDTH_12, // Resolución de 12 bits
-//    };
-//	// Establecimiento de la configuración del canal
-//    ESP_ERROR_CHECK(adc_oneshot_config_channel(adc_hdlr, THERMISTOR_ADC_CHANNEL, &channel_cfg));
+    // Inicializa el semáforo y el temporizador periódico
+    semSample = xSemaphoreCreateBinary();
+    const esp_timer_create_args_t tmrSampleArgs = {
+        .callback = &tmrSampleCallback,
+        .name = "Timer Configuration"
+    };
+    esp_timer_handle_t tmrSample;
+    ESP_ERROR_CHECK(esp_timer_create(&tmrSampleArgs, &tmrSample));
+    ESP_ERROR_CHECK(esp_timer_start_periodic(tmrSample, period_us));
+    
+    // Variables para reutilizar en el bucle
+    void *ptr;
+    float v, v2;
+    int i = 0; // Contador de periodos según Diagrama B
 
-	// Inicializa el semásforo (la estructura del manejador se definió globalmente)
-	semSample = xSemaphoreCreateBinary();
+    therm_t thermistor;
+    therm_t t2;
 
-	// Crea y establece una estructura de configuración para el temporizador
-	const esp_timer_create_args_t tmrSampleArgs = {
-		.callback = &tmrSampleCallback,
-		.name = "Timer Configuration"
-	};
+    therm_config(&thermistor, 35, 15);
+    therm_config(&t2, 26, 14);
 
-	// Lanza el temporizador, conel periodo de muestreo recibido como parámetro
-	esp_timer_handle_t tmrSample;
-	ESP_ERROR_CHECK(esp_timer_create(&tmrSampleArgs, &tmrSample));
-	ESP_ERROR_CHECK(esp_timer_start_periodic(tmrSample, period_us));
-	
-	// variables para reutilizar en el bucle
-	void *ptr;
-	float v, v2;
-	therm_t thermistor;
+    // Encendemos el termistor principal T1 y aseguramos que T2 empiece apagado
+    therm_power_on(thermistor);
+    therm_power_off(t2);
 
-	therm_t t2;
+    // Loop (sin while(1), usando la macro de system.h)
+    TASK_LOOP()
+    {
+        if(xSemaphoreTake(semSample, ((1000/frequency)*1.2)/portTICK_PERIOD_MS))
+        {   
+            // 1. Lee T1 e incrementa i
+            v = therm_read_t(thermistor);
+            i++;
 
-	therm_config(&thermistor, 35, 15);
-	therm_config(&t2, 26, 14);
+            // 2. Envía T1 a tarea Monitor a través de rbuf_mon
+            if (xRingbufferSendAcquire(*rbuf_mon, &ptr, sizeof(monitor_msg_t), pdMS_TO_TICKS(100)) != pdTRUE)
+            {
+                ESP_LOGW(TAG,"Buffer Monitor lleno. Espacio: %d", xRingbufferGetCurFreeSize(*rbuf_mon));
+            }
+            else 
+            {
+                monitor_msg_t msg_mon = {
+                    .source = SRC_SENSOR,
+                    .value = v
+                };
+                memcpy(ptr, &msg_mon, sizeof(monitor_msg_t));
+                xRingbufferSendComplete(*rbuf_mon, ptr);
+            }
 
-	// Loop
-	TASK_LOOP()
-	{
-		// Se bloquea a la espera del semáforo. Si el periodo establecido se retrasa un 20%
-		// el sistema se reinicia por seguridad. Este mecanismo de watchdog software es útil
-		// en tareas periódicas cuyo periodo es conocido. 
-		if(xSemaphoreTake(semSample, ((1000/frequency)*1.2)/portTICK_PERIOD_MS))
-		{	
-			// lectura del sensor. Se obtiene el valor en grados centígrados
-			//v = v_to_temperature(lsb_to_v(read_adc()));
-			v=therm_read_t(thermistor);
-			v2=therm_read_t(t2);
-			ESP_LOGI(TAG, "valores medido (pre buffer): %f %f", v, v2);
+            // 3. Comprueba si toca activar el termistor réplica (i % N == 0)
+            if (i % N == 0)
+            {
+                // Enciende T2, lee T2 y apaga T2
+                therm_power_on(t2);
+                vTaskDelay(pdMS_TO_TICKS(10)); // Breve estabilización eléctrica
+                v2 = therm_read_t(t2);
+                therm_power_off(t2);
 
+                ESP_LOGI(TAG, "Comprobación periódica (i=%d) -> T1: %.2f, T2: %.2f", i, v, v2);
 
-			// Uso del buffer cíclico entre la tarea monitor y sensor. Ver documentación en ESP-IDF
-			// Pide al RingBuffer espacio para escribir un float. 
-			if (xRingbufferSendAcquire(*rbuf, &ptr, sizeof(float), pdMS_TO_TICKS(100)) != pdTRUE)
-			{
-				// Si falla la reserva de memoria, notifica la pérdida del dato. Esto ocurre cuando 
-				// una tarea productora es mucho más rápida que la tarea consumidora. Aquí no debe ocurrir.
-				ESP_LOGI(TAG,"Buffer lleno. Espacio disponible: %d", xRingbufferGetCurFreeSize(*rbuf));
-			}
-			else 
-			{
-				// Si xRingbufferSendAcquire tiene éxito, podemos escribir el número de bytes solicitados
-				// en el puntero ptr. El espacio asignado estará bloqueado para su lectura hasta que 
-				// se notifique que se ha completado la escritura
-				memcpy(ptr,&v, sizeof(float));
-
-				// Se notifica que la escritura ha completado. 
-				xRingbufferSendComplete(*rbuf, ptr);
-			}
-		}
-		else
-		{
-			ESP_LOGI(TAG,"Watchdog (soft) failed");
-			esp_restart();
-		}
-	}
-	
-	ESP_LOGI(TAG,"Deteniendo la tarea...");
-	// detención controlada de las estructuras que ha levantado la tarea
-	ESP_ERROR_CHECK(esp_timer_stop(tmrSample));
-	ESP_ERROR_CHECK(esp_timer_delete(tmrSample));
-	TASK_END();
+                // Envía T1 y T2 a tarea Comprobador a través de rbuf_comp
+                if (xRingbufferSendAcquire(*rbuf_comp, &ptr, sizeof(comprobador_msg_t), pdMS_TO_TICKS(100)) != pdTRUE)
+                {
+                    ESP_LOGW(TAG,"Buffer Comprobador lleno. Espacio: %d", xRingbufferGetCurFreeSize(*rbuf_comp));
+                }
+                else
+                {
+                    comprobador_msg_t msg_comp = {
+                        .t1 = v,
+                        .t2 = v2
+                    };
+                    memcpy(ptr, &msg_comp, sizeof(comprobador_msg_t));
+                    xRingbufferSendComplete(*rbuf_comp, ptr);
+                }
+            }
+        }
+        else
+        {
+            ESP_LOGE(TAG,"Watchdog (soft) failed");
+            esp_restart();
+        }
+    }
+    
+    ESP_LOGI(TAG,"Deteniendo la tarea Sensor...");
+    therm_power_off(thermistor);
+    therm_power_off(t2);
+    ESP_ERROR_CHECK(esp_timer_stop(tmrSample));
+    ESP_ERROR_CHECK(esp_timer_delete(tmrSample));
+    TASK_END();
 }
