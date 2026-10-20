@@ -85,7 +85,7 @@ SYSTEM_TASK(TASK_MONITOR)
                     break;
 
                 case ERROR:
-                    printf("Sensor ERROR. Repare and restart.\n");
+                    printf("Sensor ERROR. Repair and restart.\n");
                     // Para salir de TASK_LOOP() y que la tarea se detenga por sí misma:
                     goto exit_monitor_loop;
 

@@ -147,8 +147,8 @@ SYSTEM_TASK(TASK_SENSOR)
     therm_config(&t2, 26, 14);
 
     // Encendemos el termistor principal T1 y aseguramos que T2 empiece apagado
-    therm_power_on(thermistor);
-    therm_power_off(t2);
+    // therm_power_on(thermistor);
+    // therm_power_off(t2);
 
     // Loop (sin while(1), usando la macro de system.h)
     TASK_LOOP()
@@ -177,11 +177,11 @@ SYSTEM_TASK(TASK_SENSOR)
             // 3. Comprueba si toca activar el termistor réplica (i % N == 0)
             if (i % N == 0)
             {
-                // Enciende T2, lee T2 y apaga T2
-                therm_power_on(t2);
-                vTaskDelay(pdMS_TO_TICKS(10)); // Breve estabilización eléctrica
+                // T2 se enciende por la marcha cuando lo leemos
+                // therm_power_on(t2);
+                // vTaskDelay(pdMS_TO_TICKS(10)); // Breve estabilización eléctrica
                 v2 = therm_read_t(t2);
-                therm_power_off(t2);
+                // therm_power_off(t2);
 
                 ESP_LOGI(TAG, "Comprobación periódica (i=%d) -> T1: %.2f, T2: %.2f", i, v, v2);
 
@@ -209,8 +209,8 @@ SYSTEM_TASK(TASK_SENSOR)
     }
     
     ESP_LOGI(TAG,"Deteniendo la tarea Sensor...");
-    therm_power_off(thermistor);
-    therm_power_off(t2);
+    // therm_power_off(thermistor);
+    // therm_power_off(t2);
     ESP_ERROR_CHECK(esp_timer_stop(tmrSample));
     ESP_ERROR_CHECK(esp_timer_delete(tmrSample));
     TASK_END();
