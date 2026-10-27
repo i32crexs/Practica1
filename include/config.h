@@ -35,7 +35,8 @@ enum{
 // Campo inicial para discernir qué tarea envía el mensaje al Monitor
 typedef enum {
     SRC_SENSOR,
-    SRC_COMPROBADOR
+    SRC_COMPROBADOR,
+    SRC_VOTADOR
 } msg_source_t;
 
 typedef struct {
@@ -47,9 +48,11 @@ typedef struct {
 // Ítem que circula por el RingBuffer Monitor
 typedef struct {
     msg_source_t source; // Fuente del mensaje (Sensor o Comprobador)
+    
     union {
         sensor_readings_t readings;
         float deviation;
+        float media;
     } data;
 } monitor_msg_t;
 
