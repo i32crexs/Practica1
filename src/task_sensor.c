@@ -137,14 +137,15 @@ SYSTEM_TASK(TASK_SENSOR)
     
     // Variables para reutilizar en el bucle
     void *ptr;
-    float v, v2;
+    float v, v2, v3;
     int i = 0; // Contador de periodos según Diagrama B
 
     therm_t thermistor;
-    therm_t t2;
+    therm_t t2, t3;
 
     therm_config(&thermistor, 35, 15);
     therm_config(&t2, 26, 14);
+    therm_config(&t3, 34, 19);
 
     // Encendemos el termistor principal T1 y aseguramos que T2 empiece apagado
     // therm_power_on(thermistor);

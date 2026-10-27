@@ -65,7 +65,7 @@ esp_err_t therm_config(therm_t* thermistor,
 {
     adc_unit_t unit;
     adc_channel_t channel;
-    esp_err_t ret_v;
+    esp_err_t ret_v, c;
     adc_oneshot_unit_handle_t hdlr;
     ret_v = get_adc_info_from_gpio(gpio, &unit, &channel);
 
@@ -75,7 +75,11 @@ esp_err_t therm_config(therm_t* thermistor,
         .clk_src = ADC_RTC_CLK_SRC_DEFAULT,
     };
 	// Establecimiento de la configuración en ADC
-    ESP_ERROR_CHECK(adc_oneshot_new_unit(&unit_cfg, &hdlr));
+    c = adc_oneshot_new_unit(&unit_cfg, &hdlr);
+
+    // Si el retorno es ESP_ERR_NOT_FOUND la unidad esta en uso
+    if(c==ESP_OK || c == ESP_ERR_NOT_FOUND)  c = ESP_OK;
+    else    ESP_ERROR_CHECK(c);
 
 	// Estructura de datos para configurar el canal de la unidad ADC
     adc_oneshot_chan_cfg_t channel_cfg = {
