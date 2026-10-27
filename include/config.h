@@ -38,10 +38,19 @@ typedef enum {
     SRC_COMPROBADOR
 } msg_source_t;
 
+typedef struct {
+    float sensor1;
+    float sensor2;
+    float sensor3;
+} sensor_readings_t;
+
 // Ítem que circula por el RingBuffer Monitor
 typedef struct {
     msg_source_t source; // Fuente del mensaje (Sensor o Comprobador)
-    float value;         // Temperatura T1 o Desviación calculada
+    union {
+        sensor_readings_t readings;
+        float deviation;
+    } data;
 } monitor_msg_t;
 
 // Ítem que circula por el RingBuffer Comprobador

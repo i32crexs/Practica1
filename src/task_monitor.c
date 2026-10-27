@@ -61,7 +61,7 @@ SYSTEM_TASK(TASK_MONITOR)
             // (En NORMAL_MODE y DEGRADED_MODE no se imprime directamente la desviación)
             if (msg.source == SRC_COMPROBADOR) 
             {
-                desviacion = msg.value;
+                desviacion = msg.data.deviation;
             }
 
             // Estructura switch sugerida en el documento según el estado actual
@@ -70,17 +70,25 @@ SYSTEM_TASK(TASK_MONITOR)
                 case NORMAL_MODE:
                     if (msg.source == SRC_SENSOR) 
                     {
-                        printf("NORMAL_MODE: T = %.2f °C\n", msg.value);
+                        printf("NORMAL_MODE: T1 = %.2f °C, T2 = %.2f °C, T3 = %.2f °C\n",
+                               msg.data.readings.sensor1,
+                               msg.data.readings.sensor2,
+                               msg.data.readings.sensor3);
                     }
                     break;
 
                 case DEGRADED_MODE:
                     if (msg.source == SRC_SENSOR) 
                     {
-                        float valor = msg.value;
-                        float t_min = valor - (valor * desviacion);
-                        float t_max = valor + (valor * desviacion);
-                        printf("DEGRADED_MODE: T = (%.2f - %.2f) °C\n", t_min, t_max);
+                        float t1_min = msg.data.readings.sensor1 * (1.0f - desviacion);
+                        float t1_max = msg.data.readings.sensor1 * (1.0f + desviacion);
+                        float t2_min = msg.data.readings.sensor2 * (1.0f - desviacion);
+                        float t2_max = msg.data.readings.sensor2 * (1.0f + desviacion);
+                        float t3_min = msg.data.readings.sensor3 * (1.0f - desviacion);
+                        float t3_max = msg.data.readings.sensor3 * (1.0f + desviacion);
+                        printf("DEGRADED_MODE: T1 = (%.2f - %.2f) °C, "
+                               "T2 = (%.2f - %.2f) °C, T3 = (%.2f - %.2f) °C\n",
+                               t1_min, t1_max, t2_min, t2_max, t3_min, t3_max);
                     }
                     break;
 
