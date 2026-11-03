@@ -57,7 +57,7 @@ SYSTEM_TASK(TASK_COMPROBADOR)
             {
                 monitor_msg_t msg_out = {
                     .source = SRC_COMPROBADOR,
-                    .data.deviation = desv
+                    .value = desv
                 };
                 memcpy(ptr_tx, &msg_out, sizeof(monitor_msg_t));
                 xRingbufferSendComplete(*rbuf_mon, ptr_tx);
